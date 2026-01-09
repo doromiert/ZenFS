@@ -13,9 +13,13 @@ with lib;
 let
   cfg = config.services.zenfs.janitor;
 
-  # [ FIX ] Capture the entire scripts directory to preserve structure
-  # This ensures 'dumb.py' can resolve '../core/notify.py'
-  zenfsScripts = ../scripts;
+  # [ FIX ] Force capture of the scripts directory into the store.
+  # This ensures we get a directory tree (/nix/store/.../janitor/dumb.py),
+  # not just an isolated file.
+  zenfsScripts = pkgs.runCommand "zenfs-scripts" { } ''
+    mkdir -p $out
+    cp -r ${../scripts}/* $out/
+  '';
 
   janitorConfig = pkgs.writeText "janitor_config.json" (
     builtins.toJSON {
@@ -38,7 +42,6 @@ let
     }
   );
 
-  # Added mutagen for Music Janitor, libnotify not needed here as python lib, but binary is needed in path
   janitorEnv = pkgs.python3.withPackages (ps: [
     ps.watchdog
     ps.pyyaml
@@ -115,10 +118,11 @@ in
     systemd.services.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
       description = "ZenFS Dumb Janitor (Sorting Deck)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
+      # [ FIX ] Set PYTHONPATH so the script can import 'notify' from 'core'
+      environment.PYTHONPATH = "${zenfsScripts}/core";
       path = [ pkgs.libnotify ];
       serviceConfig = {
         Type = "oneshot";
-        # Use the directory reference
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/dumb.py";
       };
     };
@@ -135,6 +139,7 @@ in
     systemd.services.zenfs-janitor-music = mkIf cfg.music.enable {
       description = "ZenFS Music Janitor (Symlink Forest)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
+      environment.PYTHONPATH = "${zenfsScripts}/core";
       path = [
         pkgs.coreutils
         pkgs.libnotify
@@ -157,6 +162,7 @@ in
     systemd.services.zenfs-janitor-ml = mkIf cfg.ml.enable {
       description = "ZenFS Oracle (Content Analysis)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
+      environment.PYTHONPATH = "${zenfsScripts}/core";
       path = [ pkgs.libnotify ];
       serviceConfig = {
         Type = "oneshot";
