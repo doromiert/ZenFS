@@ -13,6 +13,10 @@ with lib;
 let
   cfg = config.services.zenfs.janitor;
 
+  # [ FIX ] Capture the entire scripts directory to preserve structure
+  # This ensures 'dumb.py' can resolve '../core/notify.py'
+  zenfsScripts = ../scripts;
+
   janitorConfig = pkgs.writeText "janitor_config.json" (
     builtins.toJSON {
       dumb = {
@@ -34,7 +38,7 @@ let
     }
   );
 
-  # Added mutagen for Music Janitor
+  # Added mutagen for Music Janitor, libnotify not needed here as python lib, but binary is needed in path
   janitorEnv = pkgs.python3.withPackages (ps: [
     ps.watchdog
     ps.pyyaml
@@ -114,7 +118,8 @@ in
       path = [ pkgs.libnotify ];
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/dumb.py}";
+        # Use the directory reference
+        ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/dumb.py";
       };
     };
 
@@ -136,7 +141,7 @@ in
       ];
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/music.py}";
+        ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/music.py";
       };
     };
 
@@ -155,7 +160,7 @@ in
       path = [ pkgs.libnotify ];
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/ml.py}";
+        ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/ml.py";
       };
     };
 

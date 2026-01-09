@@ -13,6 +13,9 @@ with lib;
 let
   cfg = config.services.zenfs.roaming;
 
+  # [ FIX ] Capture scripts directory
+  zenfsScripts = ../scripts;
+
   # Python environment with necessary disk tools
   roamingEnv = pkgs.python3.withPackages (ps: [ ps.psutil ]);
 in
@@ -41,11 +44,11 @@ in
       path = [
         pkgs.libnotify
         pkgs.util-linux
-      ]; # Added libnotify for notifications
+      ];
       serviceConfig = {
         Type = "oneshot";
         Environment = "ZENFS_ROAMING_ROOT=${cfg.mountPoint}";
-        ExecStart = "${roamingEnv}/bin/python3 ${../scripts/core/roaming.py}";
+        ExecStart = "${roamingEnv}/bin/python3 ${zenfsScripts}/core/roaming.py";
       };
     };
 
