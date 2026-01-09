@@ -4,6 +4,7 @@
 import os
 import subprocess
 import pwd
+import shutil
 
 def send(title, message, urgency="normal", icon="drive-harddisk"):
     """
@@ -12,13 +13,11 @@ def send(title, message, urgency="normal", icon="drive-harddisk"):
     """
     try:
         # 1. Identify the primary user (Assumes UID 1000 for ZenOS single-user focus)
-        # In a more complex setup, we'd iterate /run/user/* or check login sessions.
         target_uid = 1000
         try:
             user_record = pwd.getpwuid(target_uid)
             username = user_record.pw_name
         except KeyError:
-            # Fallback if UID 1000 doesn't exist
             print(f"[Notify] UID {target_uid} not found. Skipping notification.")
             return
 
@@ -30,10 +29,15 @@ def send(title, message, urgency="normal", icon="drive-harddisk"):
             # User might not be logged in
             return
 
-        # 3. Construct the command
-        # We run as the user to respect permissions and ownership
+        # 3. Construct the command using runuser
+        # We use 'bash -c' to ensure the environment variable is set correctly for the command.
+        # Note: util-linux (providing runuser) must be in the service PATH.
+        
         cmd = [
-            "su", username, "-c",
+            "runuser", 
+            "-u", username, 
+            "--", 
+            "bash", "-c",
             f"DBUS_SESSION_BUS_ADDRESS={dbus_address} notify-send -u {urgency} -i {icon} -a 'ZenOS' '{title}' '{message}'"
         ]
 

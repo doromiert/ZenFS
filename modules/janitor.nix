@@ -14,8 +14,6 @@ let
   cfg = config.services.zenfs.janitor;
 
   # [ FIX ] Force capture of the scripts directory into the store.
-  # This ensures we get a directory tree (/nix/store/.../janitor/dumb.py),
-  # not just an isolated file.
   zenfsScripts = pkgs.runCommand "zenfs-scripts" { } ''
     mkdir -p $out
     cp -r ${../scripts}/* $out/
@@ -77,7 +75,7 @@ in
       enable = mkEnableOption "Music Janitor";
       interval = mkOption {
         type = types.str;
-        default = "30min";
+        default = "5min";
       };
       musicDir = mkOption {
         type = types.str;
@@ -118,9 +116,12 @@ in
     systemd.services.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
       description = "ZenFS Dumb Janitor (Sorting Deck)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
-      # [ FIX ] Set PYTHONPATH so the script can import 'notify' from 'core'
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      path = [ pkgs.libnotify ];
+      # [ UPDATE ] Added util-linux for runuser
+      path = [
+        pkgs.libnotify
+        pkgs.util-linux
+      ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/dumb.py";
@@ -140,9 +141,11 @@ in
       description = "ZenFS Music Janitor (Symlink Forest)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
+      # [ UPDATE ] Added util-linux for runuser
       path = [
         pkgs.coreutils
         pkgs.libnotify
+        pkgs.util-linux
       ];
       serviceConfig = {
         Type = "oneshot";
@@ -163,7 +166,11 @@ in
       description = "ZenFS Oracle (Content Analysis)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      path = [ pkgs.libnotify ];
+      # [ UPDATE ] Added util-linux for runuser
+      path = [
+        pkgs.libnotify
+        pkgs.util-linux
+      ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/ml.py";
