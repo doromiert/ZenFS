@@ -13,9 +13,19 @@ with lib;
 let
   cfg = config.services.zenfs;
 
-  # Python environment for the Gatekeeper script
-  # Reduced dependencies as mounting.py uses standard library
-  pyEnv = pkgs.python3;
+  # Python environment for Gatekeeper & Indexer
+  # Added 'watchdog' for the Librarian
+  pyEnv = pkgs.python3.withPackages (ps: [ ps.watchdog ]);
+
+  # [ UPDATE ] Create the Minter utility package
+  zenfsMinter = pkgs.writeScriptBin "zenfs-mint" ''
+    #!${pkgs.python3}/bin/python3
+    import sys
+    sys.path.append("${../scripts}/user")
+    import mint
+    if __name__ == "__main__":
+        mint.main()
+  '';
 in
 {
   options.services.zenfs = {
@@ -46,8 +56,10 @@ in
       ZENFS_GATE = "/System/ZenFS";
     };
 
-    # [ SYSTEMD ] The Gatekeeper
-    # Replaces the old activationScripts bash logic
+    # [ EXPOSE ] Add Minter to system path
+    environment.systemPackages = [ zenfsMinter ];
+
+    # [ SYSTEMD ] The Gatekeeper (Startup Setup)
     systemd.services.zenfs-gatekeeper = {
       description = "ZenFS Gatekeeper (Mounts & XDG Enforcer)";
       wantedBy = [ "multi-user.target" ];
@@ -55,6 +67,17 @@ in
         Type = "oneshot";
         ExecStart = "${pyEnv}/bin/python3 ${../scripts/core/mounting.py}";
         RemainAfterExit = true;
+      };
+    };
+
+    # [ SYSTEMD ] The Librarian (Indexer Daemon)
+    systemd.services.zenfs-indexer = {
+      description = "ZenFS Librarian (Database Indexer)";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "simple";
+        Restart = "on-failure";
+        ExecStart = "${pyEnv}/bin/python3 ${../scripts/core/indexer.py}";
       };
     };
 

@@ -108,16 +108,25 @@ in
         ];
       };
     };
+
+    # [ NEW ] Offloader Configuration
+    offloader = {
+      enable = mkEnableOption "ZenFS Offloader (Storage Saver)";
+      threshold = mkOption {
+        type = types.int;
+        default = 80;
+        description = "Disk usage percentage (0-100) at which to start offloading files.";
+      };
+    };
   };
 
-  config = mkIf (cfg.dumb.enable || cfg.music.enable || cfg.ml.enable) {
+  config = mkIf (cfg.dumb.enable || cfg.music.enable || cfg.ml.enable || cfg.offloader.enable) {
 
     # [ DUMB JANITOR ]
     systemd.services.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
       description = "ZenFS Dumb Janitor (Sorting Deck)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      # [ UPDATE ] Added util-linux for runuser
       path = [
         pkgs.libnotify
         pkgs.util-linux
@@ -141,7 +150,6 @@ in
       description = "ZenFS Music Janitor (Symlink Forest)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      # [ UPDATE ] Added util-linux for runuser
       path = [
         pkgs.coreutils
         pkgs.libnotify
@@ -166,7 +174,6 @@ in
       description = "ZenFS Oracle (Content Analysis)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      # [ UPDATE ] Added util-linux for runuser
       path = [
         pkgs.libnotify
         pkgs.util-linux
@@ -182,6 +189,24 @@ in
       timerConfig = {
         OnBootSec = "30m";
         OnUnitActiveSec = cfg.ml.interval;
+      };
+    };
+
+    # [ OFFLOADER SERVICE ]
+    systemd.services.zenfs-offloader = mkIf cfg.offloader.enable {
+      description = "ZenFS Offloader (Storage Watchdog)";
+      wantedBy = [ "multi-user.target" ];
+      environment.PYTHONPATH = "${zenfsScripts}/core";
+      # Requires lsof for open file detection
+      path = [
+        pkgs.lsof
+        pkgs.coreutils
+        pkgs.util-linux
+      ];
+      serviceConfig = {
+        Type = "simple";
+        Restart = "on-failure";
+        ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/core/offloader.py";
       };
     };
   };

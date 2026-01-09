@@ -15,7 +15,6 @@ def check_root():
         sys.exit(1)
 
 def get_removable_drives():
-    """Uses lsblk to find candidate drives."""
     try:
         cmd = ["lsblk", "-J", "-o", "NAME,SIZE,MODEL,TRAN,MOUNTPOINT,FSTYPE"]
         result = subprocess.check_output(cmd)
@@ -23,13 +22,8 @@ def get_removable_drives():
         
         candidates = []
         for dev in data.get("blockdevices", []):
-            # Filter for USB/Removable usually indicated by 'usb' transport
-            # or simply list everything that isn't the boot drive could be risky,
-            # so we'll show user everything and let them pick CAREFULLY.
-            # We filter out loop devices and RAM disks.
             if dev.get("name", "").startswith("loop") or dev.get("name", "").startswith("zram"):
                 continue
-                
             candidates.append(dev)
         return candidates
     except Exception as e:
@@ -37,12 +31,11 @@ def get_removable_drives():
         return []
 
 def mint_drive(device_node, label, mountpoint):
-    """Writes the .zenos.json identity file."""
+    """Initializes the ZenFS structure on the drive."""
     
     target_path = mountpoint
     temp_mount = False
     
-    # If not mounted, mount to /tmp
     if not mountpoint:
         print(f"Drive {device_node} is not mounted. Mounting temporarily...")
         target_path = f"/tmp/zenfs_mint_{int(time.time())}"
@@ -54,14 +47,24 @@ def mint_drive(device_node, label, mountpoint):
             print("Failed to mount drive. Is it formatted?")
             return False
 
-    identity_file = os.path.join(target_path, ".zenos.json")
+    # [ UPDATE ] New ZenFS Structure
+    system_dir = os.path.join(target_path, "System", "ZenFS")
+    db_dir = os.path.join(system_dir, "Database")
+    users_dir = os.path.join(target_path, "Users")
+    identity_file = os.path.join(system_dir, "drive.json")
     
+    # Check for existing identity
     if os.path.exists(identity_file):
         print(f"\n[!] WARNING: This drive already has a ZenFS identity!")
         override = input("Overwrite? (y/N): ").lower()
         if override != 'y':
             if temp_mount: subprocess.call(["umount", target_path])
             return False
+
+    # Create Structure
+    print("Creating directory hierarchy...")
+    os.makedirs(db_dir, exist_ok=True)
+    os.makedirs(users_dir, exist_ok=True)
 
     new_uuid = str(uuid.uuid4())
     data = {
@@ -79,7 +82,7 @@ def mint_drive(device_node, label, mountpoint):
         print(f"\n[SUCCESS] Drive minted!")
         print(f"UUID:  {new_uuid}")
         print(f"Label: {label}")
-        print(f"File:  {identity_file}")
+        print(f"Path:  {identity_file}")
     except Exception as e:
         print(f"Error writing identity: {e}")
     finally:
@@ -103,7 +106,6 @@ def main():
     print(f"{'#':<3} {'DEVICE':<10} {'SIZE':<10} {'MODEL':<20} {'MOUNT':<15}")
     print("-" * 60)
     
-    # Flatten list for selection if partitions exist
     selection_map = {}
     idx = 1
     
@@ -111,9 +113,6 @@ def main():
         nonlocal idx
         prefix = "  " * indent
         name = d.get('name')
-        
-        # Only selectable if it has a filesystem or is a partition
-        # We assume users mint partitions, not raw disks usually, unless whole-disk fs.
         is_selectable = d.get('fstype') is not None
         
         sel_str = f"{idx}]" if is_selectable else "   "
@@ -133,18 +132,12 @@ def main():
     
     try:
         choice = input("\nSelect drive number to mint (Ctrl+C to cancel): ")
-        if not choice.isdigit():
-            print("Invalid selection.")
-            return
-            
+        if not choice.isdigit(): return
         dev = selection_map.get(int(choice))
-        if not dev:
-            print("Invalid selection.")
-            return
+        if not dev: return
             
-        label = input(f"Enter Label for {dev['name']} (e.g. 'BackupDrive'): ")
-        if not label:
-            label = "Unnamed_ZenFS_Drive"
+        label = input(f"Enter Label for {dev['name']}: ")
+        if not label: label = "Unnamed_ZenFS_Drive"
             
         mint_drive(dev['name'], label, dev.get('mountpoint'))
         
