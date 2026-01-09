@@ -1,231 +1,170 @@
+######
+# modules/janitor.nix
+######
 {
-  config,
   lib,
   pkgs,
+  config,
   ...
 }:
+
+with lib;
 
 let
   cfg = config.services.zenfs.janitor;
 
-  # [ LOGIC ] Dumb Mode Script
-  janitorDumb = pkgs.writers.writePython3Bin "janitor-dumb" {
-    libraries = [ ];
-  } (builtins.readFile ../scripts/janitorDumb.py);
-
-  # [ LOGIC ] ML Mode Script
-  janitorML = pkgs.writers.writePython3Bin "janitor-ml" {
-    libraries = [ ];
-  } (builtins.readFile ../scripts/janitorML.py);
-
-  # [ CONFIGS ]
-  dumbConfigJson = builtins.toJSON {
-    watched_dirs = cfg.dumb.watchedDirs;
-    grace_period = cfg.dumb.gracePeriod;
-    rules = cfg.dumb.rules;
-  };
-
-  # Config for Janitor Music (View Generator)
-  musicViewConfigJson = builtins.toJSON {
-    inherit (cfg.music) musicDir unsortedDir artistSplitSymbols;
-  };
-
-  # Config for Swisstag (Tagger)
-  swisstagConfigJson = builtins.toJSON {
-    defaults = {
-      rename = false; # Protection Mode
-      match_filename = true;
-      lyrics = {
-        fetch = true;
-        mode = "embed";
-        source = "auto";
+  janitorConfig = pkgs.writeText "janitor_config.json" (
+    builtins.toJSON {
+      dumb = {
+        grace_period = cfg.dumb.gracePeriod;
+        watched_dirs = cfg.dumb.watchedDirs;
+        rules = cfg.dumb.rules;
       };
-      cover = {
-        size = "1920x1920";
-        keep_resized = true;
+      music = {
+        music_dir = cfg.music.musicDir;
+        unsorted_dir = cfg.music.unsortedDir;
+        split_symbols = cfg.music.artistSplitSymbols;
       };
-    };
-    separators = {
-      artist = lib.concatStringsSep "" cfg.music.artistSplitSymbols;
-      genre = "; ";
-    };
-    api_keys = { };
-  };
+      ml = {
+        enabled = cfg.ml.enable;
+        interval = cfg.ml.interval;
+        scan_dirs = cfg.ml.scanDirs;
+        suggestions_db = "/System/ZenFS/Database/suggestions.json";
+      };
+    }
+  );
 
-  swisstagConfigFile = pkgs.writeText "swisstag-config.json" swisstagConfigJson;
-
+  # Added mutagen for Music Janitor
+  janitorEnv = pkgs.python3.withPackages (ps: [
+    ps.watchdog
+    ps.pyyaml
+    ps.pillow
+    ps.mutagen
+    ps.psutil
+  ]);
 in
 {
   options.services.zenfs.janitor = {
 
-    # --- Dumb Janitor ---
     dumb = {
-      enable = lib.mkEnableOption "Dumb Janitor";
-      watchedDirs = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ "$HOME/Downloads" ];
-      };
-      gracePeriod = lib.mkOption {
-        type = lib.types.int;
-        default = 60;
-      };
-      interval = lib.mkOption {
-        type = lib.types.str;
+      enable = mkEnableOption "Dumb Janitor";
+      interval = mkOption {
+        type = types.str;
         default = "5min";
       };
-      rules = lib.mkOption {
-        type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+      gracePeriod = mkOption {
+        type = types.int;
+        default = 60;
+      };
+      watchedDirs = mkOption {
+        type = types.listOf types.str;
+        default = [ "/home/doromiert/Downloads" ];
+      };
+      rules = mkOption {
+        type = types.attrsOf (types.listOf types.str);
         default = { };
       };
     };
 
-    # --- Music Janitor (Spec 6) ---
     music = {
-      enable = lib.mkEnableOption "Music View Generator (Symlink Forest)";
-
-      tagging = {
-        enable = lib.mkEnableOption "Swisstag Backend (Metadata Automation)";
-      };
-
-      unsortedDir = lib.mkOption {
-        type = lib.types.str;
-        default = "$HOME/Music/.database";
-      };
-      musicDir = lib.mkOption {
-        type = lib.types.str;
-        default = "$HOME/Music";
-      };
-      artistSplitSymbols = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ";" ];
-      };
-      interval = lib.mkOption {
-        type = lib.types.str;
+      enable = mkEnableOption "Music Janitor";
+      interval = mkOption {
+        type = types.str;
         default = "30min";
       };
+      musicDir = mkOption {
+        type = types.str;
+        default = "/home/doromiert/Music";
+      };
+      unsortedDir = mkOption {
+        type = types.str;
+        default = "/home/doromiert/Music/.database";
+      };
+      artistSplitSymbols = mkOption {
+        type = types.listOf types.str;
+        default = [
+          ";"
+          ","
+        ];
+      };
     };
 
-    # --- ML Janitor ---
     ml = {
-      enable = lib.mkEnableOption "ML Janitor";
-      smallModel = lib.mkOption {
-        type = lib.types.str;
-        default = "mk-quant-tiny-v1";
+      enable = mkEnableOption "ML Janitor (The Oracle)";
+      interval = mkOption {
+        type = types.str;
+        default = "1h";
       };
-      largeModel = lib.mkOption {
-        type = lib.types.str;
-        default = "mk-llm-7b-reasoner";
-      };
-      imageModel = lib.mkOption {
-        type = lib.types.str;
-        default = "mk-vision-pro-v2";
-      };
-      downTime = lib.mkOption {
-        type = lib.types.submodule {
-          options = {
-            maxLoadAvg = lib.mkOption {
-              type = lib.types.float;
-              default = 1.5;
-            };
-            checkInterval = lib.mkOption {
-              type = lib.types.str;
-              default = "30min";
-            };
-          };
-        };
-        default = { };
+      scanDirs = mkOption {
+        type = types.listOf types.str;
+        default = [
+          "$HOME/Pictures"
+          "$HOME/Documents"
+        ];
       };
     };
   };
 
-  config = lib.mkMerge [
+  config = mkIf (cfg.dumb.enable || cfg.music.enable || cfg.ml.enable) {
 
-    # [ DUMB SERVICE ]
-    (lib.mkIf cfg.dumb.enable {
-      systemd.user.services.zenfs-janitor-dumb = {
-        description = "ZenFS Janitor (Dumb Mode)";
-        environment.JANITOR_CONFIG = dumbConfigJson;
-        path = [ pkgs.lsof ];
-        serviceConfig = {
-          Type = "oneshot";
-          ExecStart = "${janitorDumb}/bin/janitor-dumb";
-        };
+    # [ DUMB JANITOR ]
+    systemd.services.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
+      description = "ZenFS Dumb Janitor (Sorting Deck)";
+      environment.JANITOR_CONFIG = "${janitorConfig}";
+      path = [ pkgs.libnotify ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/dumb.py}";
       };
-      systemd.user.timers.zenfs-janitor-dumb = {
-        partOf = [ "zenfs-janitor-dumb.service" ];
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "5min";
-          OnUnitActiveSec = cfg.dumb.interval;
-        };
-      };
-    })
+    };
 
-    # [ MUSIC SERVICE: View Generator ]
-    (lib.mkIf cfg.music.enable {
-      systemd.user.services.zenfs-janitor-music = {
-        description = "ZenFS Music View Generator (Symlink Forest)";
-        environment.JANITOR_MUSIC_CONFIG = musicViewConfigJson;
-        # Uses the overlay package janitorMusic
-        serviceConfig = {
-          Type = "oneshot";
-          ExecStart = "${pkgs.janitorMusic}/bin/janitor-music";
-        };
+    systemd.timers.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "10m";
+        OnUnitActiveSec = cfg.dumb.interval;
       };
-      systemd.user.timers.zenfs-janitor-music = {
-        partOf = [ "zenfs-janitor-music.service" ];
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "15min";
-          OnUnitActiveSec = cfg.music.interval;
-        };
-      };
-    })
+    };
 
-    # [ MUSIC SERVICE: Tagger (Swisstag) ]
-    (lib.mkIf cfg.music.tagging.enable {
-      systemd.user.services.zenfs-swisstag = {
-        description = "ZenFS Music Tagger (Swisstag)";
-        environment.SWISSTAG_CONFIG = "${swisstagConfigFile}";
-        serviceConfig = {
-          Type = "oneshot";
-          # Runs in Album mode on the database
-          ExecStart = "${pkgs.swisstag}/bin/swisstag -d network,cmd --album \"${cfg.music.unsortedDir}\"";
-        };
+    # [ MUSIC JANITOR ]
+    systemd.services.zenfs-janitor-music = mkIf cfg.music.enable {
+      description = "ZenFS Music Janitor (Symlink Forest)";
+      environment.JANITOR_CONFIG = "${janitorConfig}";
+      path = [
+        pkgs.coreutils
+        pkgs.libnotify
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/music.py}";
       };
-      systemd.user.timers.zenfs-swisstag = {
-        partOf = [ "zenfs-swisstag.service" ];
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "20min";
-          OnUnitActiveSec = "1h";
-        }; # Tagging runs less often
-      };
-    })
+    };
 
-    # [ ML SERVICE ]
-    (lib.mkIf cfg.ml.enable {
-      systemd.user.services.zenfs-janitor-ml = {
-        description = "ZenFS Janitor (ML Mode)";
-        environment = {
-          ZENFS_MODEL_SMALL = cfg.ml.smallModel;
-          ZENFS_MODEL_LARGE = cfg.ml.largeModel;
-          ZENFS_MODEL_IMAGE = cfg.ml.imageModel;
-          ZENFS_LOAD_THRESHOLD = toString cfg.ml.downTime.maxLoadAvg;
-        };
-        serviceConfig = {
-          Type = "oneshot";
-          ExecStart = "${janitorML}/bin/janitor-ml";
-        };
+    systemd.timers.zenfs-janitor-music = mkIf cfg.music.enable {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "15m";
+        OnUnitActiveSec = cfg.music.interval;
       };
-      systemd.user.timers.zenfs-janitor-ml = {
-        partOf = [ "zenfs-janitor-ml.service" ];
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "10min";
-          OnUnitActiveSec = cfg.ml.downTime.checkInterval;
-        };
+    };
+
+    # [ ML JANITOR ]
+    systemd.services.zenfs-janitor-ml = mkIf cfg.ml.enable {
+      description = "ZenFS Oracle (Content Analysis)";
+      environment.JANITOR_CONFIG = "${janitorConfig}";
+      path = [ pkgs.libnotify ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${janitorEnv}/bin/python3 ${../scripts/janitor/ml.py}";
       };
-    })
-  ];
+    };
+
+    systemd.timers.zenfs-janitor-ml = mkIf cfg.ml.enable {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "30m";
+        OnUnitActiveSec = cfg.ml.interval;
+      };
+    };
+  };
 }
