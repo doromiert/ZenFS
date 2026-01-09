@@ -5,12 +5,15 @@ import os
 import sys
 import subprocess
 import pwd
-import grp
-import stat
+import json
+import uuid
+import time
 
 # [ CONSTANTS ]
 USERS_ROOT = "/Users"
 SYSTEM_DB = "/System/ZenFS/Database"
+ROOT_ID_FILE = "/System/ZenFS/drive.json"
+
 XDG_TEMPLATE = [
     "Projects", "3D", "Android", "AI", "Apps & Scripts", 
     "Doom", "Rift", "Misc", "Passwords", "Downloads/Waiting"
@@ -61,17 +64,37 @@ def bind_user_gate(username, home_dir):
     except KeyError:
         print(f"[Gatekeeper] Error: User {username} not found in passwd database.")
 
-def init_shadow_db():
-    """Initializes the system-wide shadow database directory."""
+def init_system_root():
+    """Initializes the system-wide ZenFS structures."""
+    # 1. Database
     if not os.path.exists(SYSTEM_DB):
         os.makedirs(SYSTEM_DB)
-    os.chmod(SYSTEM_DB, 0o700)
+    os.chmod(SYSTEM_DB, 0o700) # Restricted access
+
+    # 2. Root Drive Identity (drive.json)
+    if not os.path.exists(ROOT_ID_FILE):
+        print("[Gatekeeper] Root Identity missing. Minting new System UUID...")
+        identity = {
+            "drive_identity": {
+                "uuid": str(uuid.uuid4()),
+                "label": "ZeroRoot",
+                "type": "system",
+                "created_at": time.time(),
+                "node": os.uname().nodename
+            }
+        }
+        try:
+            with open(ROOT_ID_FILE, 'w') as f:
+                json.dump(identity, f, indent=2)
+            os.chmod(ROOT_ID_FILE, 0o644)
+        except Exception as e:
+            print(f"[Gatekeeper] Failed to write root identity: {e}")
 
 def main():
     print("ZenFS Gatekeeper: Initializing...")
     
-    # 1. Initialize System Gates
-    init_shadow_db()
+    # 1. Initialize System Gates & Identity
+    init_system_root()
     
     # 2. Iterate /home users and bind
     if os.path.exists("/home"):
