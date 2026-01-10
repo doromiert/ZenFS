@@ -17,7 +17,11 @@ let
   zenfsScripts = ../scripts;
 
   # Python environment with necessary disk tools
-  roamingEnv = pkgs.python3.withPackages (ps: [ ps.psutil ]);
+  # [ UPDATE ] Added 'watchdog' dependency
+  roamingEnv = pkgs.python3.withPackages (ps: [
+    ps.psutil
+    ps.watchdog
+  ]);
 in
 {
   options.services.zenfs.roaming = {
@@ -46,8 +50,11 @@ in
         pkgs.util-linux
       ];
       serviceConfig = {
-        Type = "oneshot";
-        Environment = "ZENFS_ROAMING_ROOT=${cfg.mountPoint}";
+        # [ FIX ] Changed to simple because the script is now a daemon (infinite loop)
+        Type = "simple";
+        Restart = "always";
+        # [ FIX ] PYTHONUNBUFFERED=1 ensures logs appear in journalctl immediately
+        Environment = "ZENFS_ROAMING_ROOT=${cfg.mountPoint} PYTHONUNBUFFERED=1";
         ExecStart = "${roamingEnv}/bin/python3 ${zenfsScripts}/core/roaming.py";
       };
     };

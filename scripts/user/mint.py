@@ -7,6 +7,7 @@ import json
 import uuid
 import subprocess
 import time
+import pwd
 
 def check_root():
     if os.geteuid() != 0:
@@ -16,12 +17,14 @@ def check_root():
 
 def get_removable_drives():
     try:
+        # Request JSON output for specific columns
         cmd = ["lsblk", "-J", "-o", "NAME,SIZE,MODEL,TRAN,MOUNTPOINT,FSTYPE"]
         result = subprocess.check_output(cmd)
         data = json.loads(result)
         
         candidates = []
         for dev in data.get("blockdevices", []):
+            # Filter out loop and zram devices
             if dev.get("name", "").startswith("loop") or dev.get("name", "").startswith("zram"):
                 continue
             candidates.append(dev)
@@ -36,6 +39,7 @@ def mint_drive(device_node, label, mountpoint):
     target_path = mountpoint
     temp_mount = False
     
+    # If not mounted, mount temporarily to write the structure
     if not mountpoint:
         print(f"Drive {device_node} is not mounted. Mounting temporarily...")
         target_path = f"/tmp/zenfs_mint_{int(time.time())}"
@@ -53,7 +57,7 @@ def mint_drive(device_node, label, mountpoint):
     users_dir = os.path.join(target_path, "Users")
     identity_file = os.path.join(system_dir, "drive.json")
     
-    # Check for existing identity
+    # Check for existing identity to prevent accidental wipes
     if os.path.exists(identity_file):
         print(f"\n[!] WARNING: This drive already has a ZenFS identity!")
         override = input("Overwrite? (y/N): ").lower()
@@ -65,6 +69,25 @@ def mint_drive(device_node, label, mountpoint):
     print("Creating directory hierarchy...")
     os.makedirs(db_dir, exist_ok=True)
     os.makedirs(users_dir, exist_ok=True)
+
+    # [ UPDATE ] Auto-provision User Directories
+    # This ensures that all current system users have a writable folder on the new drive
+    print("Provisioning user directories...")
+    try:
+        # Get all real users (UID >= 1000, excluding 'nobody' 65534)
+        system_users = [u for u in pwd.getpwall() if u.pw_uid >= 1000 and u.pw_uid < 65534]
+        
+        for user in system_users:
+            user_path = os.path.join(users_dir, user.pw_name)
+            if not os.path.exists(user_path):
+                print(f"  + Creating space for: {user.pw_name}")
+                os.makedirs(user_path)
+                # CRITICAL: Set ownership to the user so they can write to it
+                os.chown(user_path, user.pw_uid, user.pw_gid)
+                # Set permissions to 700 (Owner: RWX, Group: ---, Others: ---) for privacy
+                os.chmod(user_path, 0o700)
+    except Exception as e:
+        print(f"Warning: Failed to provision user directories: {e}")
 
     new_uuid = str(uuid.uuid4())
     data = {
@@ -119,8 +142,14 @@ def main():
         if is_selectable:
             selection_map[idx] = d
             idx += 1
-            
-        print(f"{sel_str:<3} {prefix}{name:<10} {d.get('size'):<10} {d.get('model', ''):<20} {str(d.get('mountpoint')):<15}")
+        
+        # [FIX] Safe handling of None values using 'or' operators
+        # lsblk returns null for 'model' on partitions, which crashes f-strings
+        size_str = str(d.get('size') or '')
+        model_str = str(d.get('model') or '')
+        mount_str = str(d.get('mountpoint')) # Keep 'None' literal for visibility if unmounted
+        
+        print(f"{sel_str:<3} {prefix}{name:<10} {size_str:<10} {model_str:<20} {mount_str:<15}")
         
         for child in d.get('children', []):
             print_dev(child, indent + 1)

@@ -7,9 +7,12 @@ import json
 import shutil
 import re
 import subprocess
-import tempfile
+import time
+import threading
 from pathlib import Path
 import mutagen
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 # Import shared notify module
 sys.path.append(os.path.join(os.path.dirname(__file__), '../core'))
@@ -17,6 +20,7 @@ import notify
 
 # [ CONFIG ]
 CONFIG_PATH = os.environ.get("JANITOR_CONFIG")
+DEBOUNCE_SECONDS = 10 # Wait this long after last event before regenerating
 
 def load_config():
     if not CONFIG_PATH or not os.path.exists(CONFIG_PATH):
@@ -200,10 +204,61 @@ def generate_forest(config):
             icon="audio-x-generic"
         )
 
+class MusicChangeHandler(FileSystemEventHandler):
+    def __init__(self, config):
+        self.config = config
+        self.timer = None
+
+    def _trigger_regen(self):
+        print("Change detected. Scheduling forest regeneration...")
+        if self.timer:
+            self.timer.cancel()
+        # Debounce: Wait DEBOUNCE_SECONDS after last event
+        self.timer = threading.Timer(DEBOUNCE_SECONDS, generate_forest, args=[self.config])
+        self.timer.start()
+
+    def on_created(self, event):
+        if not event.is_directory: self._trigger_regen()
+
+    def on_deleted(self, event):
+        if not event.is_directory: self._trigger_regen()
+
+    def on_moved(self, event):
+        if not event.is_directory: self._trigger_regen()
+
+    def on_modified(self, event):
+        # Optional: React to modifications if tags change in place
+        if not event.is_directory: self._trigger_regen()
+
 def main():
+    print("::: ZenFS Music Janitor (Watcher Mode) :::")
     try:
         config = load_config()
+        
+        # 1. Initial Generation on Startup
         generate_forest(config)
+        
+        # 2. Setup Watcher
+        db_root = config['unsorted_dir']
+        if not os.path.exists(db_root):
+            print(f"Error: Database root {db_root} missing.")
+            return
+
+        observer = Observer()
+        handler = MusicChangeHandler(config)
+        
+        # Watch the Source of Truth (.database) recursively
+        observer.schedule(handler, db_root, recursive=True)
+        observer.start()
+        
+        print(f"Watching {db_root} for changes...")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
+
     except Exception as e:
         print(f"Music Janitor Error: {e}")
 

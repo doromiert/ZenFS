@@ -13,7 +13,6 @@ with lib;
 let
   cfg = config.services.zenfs.janitor;
 
-  # [ FIX ] Force capture of the scripts directory into the store.
   zenfsScripts = pkgs.runCommand "zenfs-scripts" { } ''
     mkdir -p $out
     cp -r ${../scripts}/* $out/
@@ -47,6 +46,8 @@ let
     ps.mutagen
     ps.psutil
   ]);
+
+  targetUser = "doromiert";
 in
 {
   options.services.zenfs.janitor = {
@@ -109,20 +110,18 @@ in
       };
     };
 
-    # [ NEW ] Offloader Configuration
     offloader = {
-      enable = mkEnableOption "ZenFS Offloader (Storage Saver)";
+      enable = mkEnableOption "ZenFS Offloader";
       threshold = mkOption {
         type = types.int;
         default = 80;
-        description = "Disk usage percentage (0-100) at which to start offloading files.";
       };
     };
   };
 
   config = mkIf (cfg.dumb.enable || cfg.music.enable || cfg.ml.enable || cfg.offloader.enable) {
 
-    # [ DUMB JANITOR ]
+    # [ DUMB JANITOR ] (Stays Periodic)
     systemd.services.zenfs-janitor-dumb = mkIf cfg.dumb.enable {
       description = "ZenFS Dumb Janitor (Sorting Deck)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
@@ -133,6 +132,7 @@ in
       ];
       serviceConfig = {
         Type = "oneshot";
+        User = targetUser;
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/dumb.py";
       };
     };
@@ -145,9 +145,10 @@ in
       };
     };
 
-    # [ MUSIC JANITOR ]
+    # [ MUSIC JANITOR ] (Converted to Daemon)
     systemd.services.zenfs-janitor-music = mkIf cfg.music.enable {
       description = "ZenFS Music Janitor (Symlink Forest)";
+      wantedBy = [ "multi-user.target" ]; # Starts automatically
       environment.JANITOR_CONFIG = "${janitorConfig}";
       environment.PYTHONPATH = "${zenfsScripts}/core";
       path = [
@@ -156,20 +157,14 @@ in
         pkgs.util-linux
       ];
       serviceConfig = {
-        Type = "oneshot";
+        Type = "simple"; # Long-running process
+        Restart = "on-failure";
+        User = targetUser;
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/music.py";
       };
     };
 
-    systemd.timers.zenfs-janitor-music = mkIf cfg.music.enable {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "15m";
-        OnUnitActiveSec = cfg.music.interval;
-      };
-    };
-
-    # [ ML JANITOR ]
+    # [ ML JANITOR ] (Stays Periodic)
     systemd.services.zenfs-janitor-ml = mkIf cfg.ml.enable {
       description = "ZenFS Oracle (Content Analysis)";
       environment.JANITOR_CONFIG = "${janitorConfig}";
@@ -180,6 +175,7 @@ in
       ];
       serviceConfig = {
         Type = "oneshot";
+        User = targetUser;
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/janitor/ml.py";
       };
     };
@@ -192,12 +188,11 @@ in
       };
     };
 
-    # [ OFFLOADER SERVICE ]
+    # [ OFFLOADER SERVICE ] (Daemon)
     systemd.services.zenfs-offloader = mkIf cfg.offloader.enable {
       description = "ZenFS Offloader (Storage Watchdog)";
       wantedBy = [ "multi-user.target" ];
       environment.PYTHONPATH = "${zenfsScripts}/core";
-      # Requires lsof for open file detection
       path = [
         pkgs.lsof
         pkgs.coreutils
@@ -206,6 +201,7 @@ in
       serviceConfig = {
         Type = "simple";
         Restart = "on-failure";
+        User = targetUser;
         ExecStart = "${janitorEnv}/bin/python3 ${zenfsScripts}/core/offloader.py";
       };
     };
