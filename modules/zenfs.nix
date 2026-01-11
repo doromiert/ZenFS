@@ -107,6 +107,24 @@ in
       fsType = "vfat";
       neededForBoot = true;
     };
+    
+    # [ SWAP ] Managed by ZenFS
+    # 1. Physical Swapfile (Disk)
+    swapDevices = mkIf (cfg.swapSize > 0) [ {
+      device = "/var/lib/swapfile";
+      size = cfg.swapSize;
+    } ];
+
+    # 2. ZRAM (Compressed RAM)
+    zramSwap = {
+      enable = true;
+      priority = 100; # Higher priority = Used before disk swap
+    };
+    
+    # 3. Swappiness
+    boot.kernel.sysctl = {
+      "vm.swappiness" = 10; # Prefer RAM/ZRAM
+    };
 
     # Basic System Structure Creation (Spec 4.1)
     systemd.tmpfiles.rules = [
