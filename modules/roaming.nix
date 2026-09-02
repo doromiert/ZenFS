@@ -11,7 +11,7 @@
 with lib;
 
 let
-  cfg = config.services.zenfs.roaming;
+  cfg = config.system.zenfs.roaming;
 
   # [ FIX ] Capture scripts directory
   zenfsScripts = ../scripts;
@@ -24,7 +24,7 @@ let
   ]);
 in
 {
-  options.services.zenfs.roaming = {
+  options.system.zenfs.roaming = {
     enable = mkEnableOption "ZenFS Roaming Protocol";
 
     automount = mkOption {

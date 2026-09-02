@@ -11,7 +11,7 @@
 with lib;
 
 let
-  cfg = config.services.zenfs.janitor;
+  cfg = config.system.zenfs.janitor;
 
   zenfsScripts = pkgs.runCommand "zenfs-scripts" { } ''
     mkdir -p $out
@@ -50,7 +50,7 @@ let
   targetUser = "doromiert";
 in
 {
-  options.services.zenfs.janitor = {
+  options.system.zenfs.janitor = {
 
     dumb = {
       enable = mkEnableOption "Dumb Janitor";

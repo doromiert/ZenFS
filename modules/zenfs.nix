@@ -11,7 +11,7 @@
 with lib;
 
 let
-  cfg = config.services.zenfs;
+  cfg = config.system.zenfs;
 
   # Python environment for Gatekeeper & Indexer
   # [ DEPENDENCY ] Watchdog is required for the Librarian
@@ -28,7 +28,7 @@ let
   '';
 in
 {
-  options.services.zenfs = {
+  options.system.zenfs = {
     enable = mkEnableOption "ZenFS Core Architecture";
 
     mainDrive = mkOption {
@@ -107,20 +107,22 @@ in
       fsType = "vfat";
       neededForBoot = true;
     };
-    
+
     # [ SWAP ] Managed by ZenFS
     # 1. Physical Swapfile (Disk)
-    swapDevices = mkIf (cfg.swapSize > 0) [ {
-      device = "/var/lib/swapfile";
-      size = cfg.swapSize;
-    } ];
+    swapDevices = mkIf (cfg.swapSize > 0) [
+      {
+        device = "/var/lib/swapfile";
+        size = cfg.swapSize;
+      }
+    ];
 
     # 2. ZRAM (Compressed RAM)
     zramSwap = {
       enable = true;
       priority = 100; # Higher priority = Used before disk swap
     };
-    
+
     # 3. Swappiness
     boot.kernel.sysctl = {
       "vm.swappiness" = 10; # Prefer RAM/ZRAM
